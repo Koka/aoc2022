@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Error as AnyhowError};
-use std::{fs, io};
+use itertools::Itertools;
+use std::{collections::HashSet, fs, io};
 
 static ROCKS: &[&[&[u8]]] = &[
     &[&[1, 1, 1, 1]],
@@ -147,7 +148,18 @@ fn stop_rock(
     rock.len()
 }
 
-fn rock_simulator(gas_jets: &Vec<char>, debug: bool) -> Result<(), AnyhowError> {
+fn rock_simulator(stone_count: usize, debug: bool) -> Result<Vec<usize>, AnyhowError> {
+    let gas_jets = fs::read_to_string("./input.txt")?
+        .lines()
+        .take(1)
+        .map(|a| Some(a.to_owned()))
+        .collect::<Option<String>>()
+        .ok_or(anyhow!("No input!"))?
+        .chars()
+        .collect::<Vec<_>>();
+
+    let mut additions = vec![];
+
     let mut field: Vec<Vec<u8>> = vec![vec![0; 7]; 4];
 
     let mut rock_idx: usize = 0;
@@ -162,7 +174,7 @@ fn rock_simulator(gas_jets: &Vec<char>, debug: bool) -> Result<(), AnyhowError> 
         print_field(&field, rock_idx, height, left, true)?;
     }
 
-    while rocks_stopped < 2022 {
+    while rocks_stopped < stone_count {
         loop {
             let will_collide = move_rock(
                 rock_idx,
@@ -190,7 +202,10 @@ fn rock_simulator(gas_jets: &Vec<char>, debug: bool) -> Result<(), AnyhowError> 
         let new_bottom = height + height_added;
 
         if new_bottom > bottom {
+            additions.push(new_bottom - bottom);
             bottom = new_bottom;
+        } else {
+            additions.push(0);
         }
 
         height = 3 + bottom;
@@ -211,20 +226,62 @@ fn rock_simulator(gas_jets: &Vec<char>, debug: bool) -> Result<(), AnyhowError> 
     println!("Rocks stopped: {}", rocks_stopped);
     println!("Tower height: {}", bottom);
 
-    Ok(())
+    dbg!(additions.len(), additions.iter().sum::<usize>());
+
+    Ok(additions)
 }
 
 fn main() -> Result<(), AnyhowError> {
-    let gas_jets = fs::read_to_string("./input.txt")?
-        .lines()
-        .take(1)
-        .map(|a| Some(a.to_owned()))
-        .collect::<Option<String>>()
-        .ok_or(anyhow!("No input!"))?
-        .chars()
-        .collect::<Vec<_>>();
+    let stone_count = 10_000;
 
-    rock_simulator(&gas_jets, false)?;
+    let v = rock_simulator(stone_count, false)?;
+
+    let mut period = None;
+    'outer: for start in (v.len() / 2)..v.len() {
+        let orig = v[start..].to_vec();
+
+        for i in 1..(v.len() - start) {
+            let mut rot = orig.clone();
+            rot.rotate_left(i);
+
+            if orig.eq(&rot) {
+                period = Some((start, i));
+                break 'outer;
+            }
+        }
+    }
+
+    if let Some((start, period)) = period {
+        dbg!(start, period);
+
+        let prefix_height: usize = v[0..start].iter().sum();
+
+        let cycle_body = v[start..start + period].to_owned();
+        let height_per_cycle = cycle_body.iter().sum::<usize>();
+
+        let target_stones: usize = 1000000000000;
+        let stones_to_compute = target_stones - start;
+
+        let cycle_count: usize = stones_to_compute / period;
+        let cycle_total_height = cycle_count * height_per_cycle;
+        let target_height = prefix_height + cycle_total_height;
+
+        let stones_remaining = stones_to_compute - cycle_count * period;
+        let partial_cycle_height: usize = cycle_body[0..stones_remaining].into_iter().sum();
+
+        dbg!(
+            target_stones,
+            cycle_count,
+            height_per_cycle,
+            target_height,
+            stones_remaining,
+            partial_cycle_height,
+        );
+
+        println!("Target height: {}", target_height + partial_cycle_height);
+    } else {
+        println!("No period!");
+    }
 
     Ok(())
 }
